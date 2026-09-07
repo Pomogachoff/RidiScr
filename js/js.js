@@ -1,63 +1,76 @@
-let input = document.querySelector(`#input`);
-let imgDiv = document.querySelector(`.images`);
 const fileInput = document.getElementById('fileInput');
+const imgDiv = document.querySelector('.images');
 
 fileInput.addEventListener('change', function(event) {
   const file = event.target.files[0];
+  if (!file) return;
+
   const reader = new FileReader();
-
   reader.onload = function(e) {
-    const text = e.target.result;
+    try {
+      // 1. Парсим HAR как JSON
+      const har = JSON.parse(e.target.result);
+      
+      // 2. Ищем запись, в которой содержится нужный ответ
+      //    Обычно это запрос с URL, содержащим "/web-viewer/generate"
+      //    или с mimeType = "application/json"
+      const entries = har.log.entries || [];
+      let targetEntry = null;
 
-    // 1. Ищем маркер "text": " (без начальной кавычки)
-    let valueSplit = text.split('text": "');
-    if (valueSplit.length < 2) {
-      console.error('Не найден маркер "text": "');
-      return;
+      for (const entry of entries) {
+        const url = entry.request.url || '';
+        // Ищем запрос к API, который возвращает данные страниц
+        if (url.includes('/web-viewer/generate') || url.includes('/api/web-viewer/generate')) {
+          targetEntry = entry;
+          break;
+        }
+      }
+
+      // Если не нашли по URL, пробуем найти запись с JSON-ответом, содержащим "pages"
+      if (!targetEntry) {
+        for (const entry of entries) {
+          const contentType = entry.response.content.mimeType || '';
+          if (contentType.includes('json')) {
+            const text = entry.response.content.text || '';
+            if (text.includes('"pages"')) {
+              targetEntry = entry;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!targetEntry) {
+        console.error('Не найдена подходящая запись в HAR');
+        return;
+      }
+
+      // 3. Извлекаем текст ответа (это JSON-строка)
+      const responseText = targetEntry.response.content.text || '';
+      
+      // 4. Парсим JSON-ответ
+      const data = JSON.parse(responseText);
+      
+      // 5. Проверяем структуру и выводим изображения
+      if (data && data.data && Array.isArray(data.data.pages)) {
+        imgDiv.innerHTML = ''; // очищаем
+        data.data.pages.forEach(page => {
+          if (page.src) {
+            const img = document.createElement('img');
+            img.src = page.src;
+            imgDiv.appendChild(img);
+          }
+        });
+      } else {
+        console.error('Неверная структура данных в ответе');
+      }
+    } catch (err) {
+      console.error('Ошибка обработки файла:', err);
     }
-
-    // 2. Берём вторую часть – это и есть JSON-строка
-    let value = valueSplit[1];
-
-    // 3. Убираем завершающую кавычку, если есть
-    if (value.endsWith('"')) {
-      value = value.slice(0, -1);
-    }
-
-    // 4. Удаляем все обратные слеши (как делали вы)
-    value = value.replaceAll("\\", "");
-
-    // 5. Находим массив pages (после "pages":[)
-    let pagesSplit = value.split('"pages":[');
-    if (pagesSplit.length < 2) {
-      console.error('Не найден "pages":[');
-      return;
-    }
-
-    // 6. Берём часть с объектами страниц
-    let pagesPart = pagesSplit[1];
-
-    // 7. Разбиваем по {"src":
-    let srcParts = pagesPart.split('{"src":');
-
-    imgDiv.innerHTML = ''; // очищаем перед добавлением
-    for (let i = 0; i < srcParts.length; i++) {
-      let part = srcParts[i];
-      if (part === "") continue;
-
-      // Удаляем все кавычки и берём первую часть до запятой
-      let cleaned = part.replaceAll('"', '');
-      let Splitting = cleaned.split(',');
-      let src = Splitting[0]; // это и есть URL
-
-      imgDiv.innerHTML += `<img src="${src}">`;
-    }
-
-    console.log(text); // для отладки
   };
 
   reader.onerror = function(e) {
-    console.error('File reading error', e);
+    console.error('Ошибка чтения файла', e);
   };
 
   reader.readAsText(file);
