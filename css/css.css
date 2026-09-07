@@ -2,7 +2,7 @@ img{
       width: 95vw;
 }
 body{
-    background-image: url(../assets/001.png);
+    background-image: url(./assets/001.png);
       background-size: 100%;
       background-attachment: fixed;
       display: flex;
